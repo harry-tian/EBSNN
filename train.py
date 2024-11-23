@@ -11,7 +11,7 @@ from EBSNN_GRU import EBSNN_GRU
 import argparse
 
 base_path = os.path.dirname(os.path.abspath(__file__))
-sys.path.extend(os.path.join(base_path),os.path.join(base_path, "../"),base_path.rsplit('/')[0])
+sys.path.extend([os.path.join(base_path),os.path.join(base_path, "../"),base_path.rsplit('/')[0]])
 from utils import p_log
 from utils import deal_results
 from utils import set_log_file

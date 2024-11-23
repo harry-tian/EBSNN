@@ -8,7 +8,7 @@ from time import time
 
 import os, sys
 base_path = os.path.dirname(os.path.abspath(__file__))
-sys.path.extend(os.path.join(base_path),os.path.join(base_path, "../"),base_path.rsplit('/')[0])
+sys.path.extend([os.path.join(base_path),os.path.join(base_path, "../"),base_path.rsplit('/')[0]])
 from utils import p_log
 
 
