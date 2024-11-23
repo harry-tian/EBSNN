@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import os, sys
+base_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.extend(os.path.join(base_path),)
+from utils import p_log
+
 
 class EBSNN_GRU(nn.Module):
     def __init__(self, num_class, embedding_dim, device,

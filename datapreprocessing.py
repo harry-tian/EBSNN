@@ -4,10 +4,13 @@ from sklearn.model_selection import train_test_split
 from collections import Counter
 import numpy as np
 import torch
-import os
-from utils import p_log
 import h5py
 from mpi4py import MPI
+
+import os, sys
+base_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.extend(os.path.join(base_path),)
+from utils import p_log
 
 
 def pack(X, segment_len=8):    # X: b * l

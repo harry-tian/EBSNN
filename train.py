@@ -1,20 +1,23 @@
 import torch
 import multiprocessing
 import traceback
-import sys
+import os, sys
 from math import ceil
 from time import time
 from sklearn.metrics import accuracy_score
 from datapreprocessing import get_dataloader
 from EBSNN_LSTM import EBSNN_LSTM
 from EBSNN_GRU import EBSNN_GRU
-from evaluate import evaluate_loss_acc
-from evaluate import FocalLoss
-import os
 import argparse
+
+base_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.extend(os.path.join(base_path),)
 from utils import p_log
 from utils import deal_results
 from utils import set_log_file
+from evaluate import evaluate_loss_acc
+from evaluate import FocalLoss
+
 from tensorboardX import SummaryWriter
 # Currently I cannot find the pytorchtools...
 # from pytorchtools import EarlyStopping

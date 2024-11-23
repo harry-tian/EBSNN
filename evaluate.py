@@ -4,8 +4,12 @@ import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import accuracy_score
 from collections import Counter
-from utils import p_log
 from time import time
+
+import os, sys
+base_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.extend(os.path.join(base_path),)
+from utils import p_log
 
 
 class FocalLoss(nn.Module):
