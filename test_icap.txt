@@ -1,0 +1,31 @@
+###[ Ethernet ]### 
+  dst       = 27:0f:00:01:21:04
+  src       = 00:00:00:00:00:00
+  type      = IPv4
+###[ IP ]### 
+     version   = 4
+     ihl       = 5
+     tos       = 0x0
+     len       = 52
+     id        = 30465
+     flags     = DF
+     frag      = 0
+     ttl       = 64
+     proto     = tcp
+     chksum    = 0xb9f
+     src       = 192.168.1.101
+     dst       = 173.194.72.84
+     \options   \
+###[ TCP ]### 
+        sport     = 31668
+        dport     = https
+        seq       = 2991597146
+        ack       = 0
+        dataofs   = 8
+        reserved  = 0
+        flags     = S
+        window    = 8192
+        chksum    = 0x40d8
+        urgptr    = 0
+        options   = [('MSS', 1460), ('NOP', None), ('WScale', 2), ('NOP', None), ('NOP', None), ('SAckOK', b'')]
+
