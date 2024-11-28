@@ -3,6 +3,7 @@ from time import time
 from sklearn.model_selection import train_test_split
 from collections import Counter
 import numpy as np
+import pickle
 import torch
 import h5py
 from mpi4py import MPI
@@ -12,165 +13,102 @@ base_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.extend([os.path.join(base_path),os.path.join(base_path, "../"),base_path.rsplit('/')[0]])
 from utils import p_log
 
-
-def pack(X, segment_len=8):    # X: b * l
-    """ input: batch of unsegmented but preprocessed packets in 8/16-bit int format"""
-    batch = X.size(0)
-    length = X.size(1)
-    l = int(length / segment_len)
-    packets = []
-    for i in range(batch):
-        packet = []
-        for j in range(l):
-            packet.append(X[i][segment_len*j: segment_len*(j+1)].tolist())
-        packets.append(packet)
-    return torch.tensor(packets, dtype=torch.long)
-
-
-def calculate_alpha(counter, mode='normal'):
-    if mode == 'normal':
-        alpha = torch.tensor(counter, dtype=torch.float32)
-        alpha = alpha / alpha.sum(0).expand_as(alpha)
-    elif mode == 'invert':
-        alpha = torch.tensor(counter, dtype=torch.float32)
-        alpha_sum = alpha.sum(0)
-        alpha_sum_expand = alpha_sum.expand_as(alpha)
-        alpha = (alpha_sum - alpha) / alpha_sum_expand
-    # fill all zeros to ones
-    alpha[alpha==0.] = 1.
-    return alpha
-
-
-class H5Iter:
-    def __init__(self, st):
-        self.corpus = []
-        self.st = st
-        
-    def __call__(self, name, h5obj):
-        if hasattr(h5obj, 'dtype') and name.endswith('/X'):
-            self.corpus.append([name.split('/')[0], h5obj[:]])
-            if len(self.corpus) % 200000 == 0:
-                p_log(f'{time() - self.st:.4f}s with {len(self.corpus)} items.')
-
+def segment_array(arr, segment_len=8): 
+    # output: L * N
+    result = []
+    for subarray in arr:
+        for i in range(0, len(subarray), segment_len):
+            segment = subarray[i:i+segment_len]
+            if len(segment) < segment_len:
+                segment.extend([0]*(segment_len-len(segment)))
+            result.append(segment)
+    return result
 
 class Loader():
-    def __init__(self, X_idx, corpus, batch_size, labels, segment_len=8,
-                 shuffle=True, load_from_hdf5=False):
-        self._debug = False
-        if self._debug:
-            debug_st = time()
+    def __init__(self, X, Y, idx, batch_size, segment_len=8, shuffle=True):
+        self.X = []
+        self.Y = Y
         self.shuffle = shuffle
-        self.X_idx = X_idx
-        self.corpus = corpus
-        self.labels = labels
-        self.load_from_hdf5 = load_from_hdf5
+        self.idx = idx
         if self.shuffle:
-            random.shuffle(self.X_idx)
-        self.ys = {}
-        if load_from_hdf5:
-            for idx in self.X_idx:
-                self.ys[idx] = labels[corpus[idx][0]]
-        else:
-            for idx in self.X_idx:
-                self.ys[idx] = labels[
-                    corpus[idx].split()[0].split('//')[0]]
-        self.alpha = Counter(list(self.ys.values()))
-        for i in labels.values():
-            if i not in self.alpha:
-                self.alpha[i] = 0
-        # TODO(DCMMC): consistent with FlowLoader?
-        self.alpha = calculate_alpha(
-            [self.alpha[k] for k in sorted(self.alpha.keys())],
-            mode='invert')
+            random.shuffle(self.idx)
+            
         self.segment_len = segment_len
         self.batch_size = batch_size
-        self.num_samples = len(X_idx)
-        self.corpus = corpus
-        if self._debug:
-            p_log('finish __init__ for class Loader after {}s.'.format(
-                time() - debug_st
-            ))
-            p_log('Alpha: {}\n'.format(self.alpha))
+
+        for packet in X:
+            packet_segmented = torch.tensor(segment_array(packet, self.segment_len)).long() # (L, N) 
+            self.X.append(packet_segmented)
+
 
     def __len__(self):
-        return int(np.ceil(len(self.X_idx) / self.batch_size))
+        return int(np.ceil(len(self.idx) / self.batch_size))
 
     def __getitem__(self, idx):
-        if self._debug:
-            st = time()
-        batch_len = []
         batch_X, batch_y = [], []
-        if self.load_from_hdf5:
-            for pkt_idx in self.X_idx[idx * self.batch_size: (idx+1) * self.batch_size]:
-                batch_X.append(self.corpus[pkt_idx][1])
-                batch_len.append(len(batch_X[-1]))
-                batch_y.append(self.ys[pkt_idx])
-        else:
-            for pkt_idx in self.X_idx[idx * self.batch_size: (idx+1) * self.batch_size]:
-                batch_X.append([int(b, 16) for b in self.corpus[pkt_idx].split()[1:]])
-                batch_len.append(len(batch_X[-1]))
-                batch_y.append(self.ys[pkt_idx])
-        # maximum length of packet maybe 65535bytes, which is extremely large!
-        # Therefore we truncate large packets to 1500bytes.
-        maxlen = min(1500, max(batch_len))
-        batch_X = [np.append(x, [256] * (maxlen - len(x))) if (
-                maxlen > len(x)) else x[:maxlen] for x in batch_X]
-        batch_X = torch.tensor(batch_X, dtype=torch.long)
+        
+        for i in self.idx[idx * self.batch_size: (idx+1) * self.batch_size]:
+            batch_X.append(self.X[i])
+            batch_y.append(self.Y[i])
+        
+        # batch_X = torch.tensor(batch_X, dtype=torch.long)
+        # batch_X = rnn_utils.pad_sequence(batch_X, batch_first=True)
         batch_y = torch.tensor(batch_y, dtype=torch.long)
-        batch_X = pack(batch_X, segment_len=self.segment_len)
         if idx == len(self) - 1 and self.shuffle:
             p_log('shuffle dataloader')
-            random.shuffle(self.X_idx)
-        if self._debug:
-            p_log('getitem {}, shape: {}, with {}s.\n'.format(
-                idx, batch_X.shape, time() - st))
+            random.shuffle(self.idx)
+        # if self._debug:
+        #     p_log('getitem {}, shape: {},\n'.format(
+        #         idx, batch_X.shape))
         return (batch_X, batch_y)
 
 
-def _get_dataloader_packet(filename, labels, test_percent, batch_size,
+def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
                            segment_len=8, shuffle=True):
-    # Turn file to X and y. percent is test_size
-    s_t = time()
-    if filename.endswith('.hdf5'):
-        p_log('Load from hdf5 file.')
-        load_from_hdf5 = True
-        corpus = []
-        f_h5 = h5py.File(os.path.join('data', filename), 'r',
-                         driver='mpio', comm=MPI.COMM_WORLD)
-        h5iter = H5Iter(s_t)
-        f_h5.visititems(h5iter)
-        corpus = h5iter.corpus
-        f_h5.close()
-    else:
-        corpus = False
-        with open(os.path.join('data', filename), 'r', encoding='utf-8',
-                  errors='ignore') as f:
-            corpus = f.readlines()
-    p_log('open dataset and load it into corpus, done with {}s\n'.format(
-        time() - s_t))
-    X_idx = list(range(len(corpus)))
+    X, Y = [], []
+    subdirs = [d for d in os.listdir(dataset_dir) if os.path.isdir(os.path.join(dataset_dir, d))]
+    label_dict = {d:i for i,d in enumerate(subdirs)}
+    for root, dirs, files in os.walk(dataset_dir):  # subdir level
+        for file in files: 
+            if file.endswith('.pkl'):
+                label = file[:-4]
+                y = label_dict[label]
+                file_name = os.path.join(root, file)
+                with open(file_name, 'rb') as f:
+                    try:
+                        while True:
+                            packet = pickle.load(f)
+                            assert(len(packet)==3)
+                            X.append(packet)
+                            Y.append(y)
+                    except EOFError:
+                        print("Finished reading " + file_name)
+    
+    ## packet format: [[IP header], [TCP/UDP header], [payload]]
+    # all stored as list of 8-bit ints
+    # payload may be empty
+    all_idx = list(range(len(X)))
+
     if test_percent < 1.0:
-        X_idx_train, X_idx_test, _, _ = train_test_split(
-            X_idx, [0 for _ in X_idx], test_size=test_percent, random_state=0
+        train_idx, test_idx, _, _ = train_test_split(
+            all_idx, [0 for _ in all_idx], test_size=test_percent, random_state=0
         )
     else:
-        X_idx_train, X_idx_test = [], X_idx
+        train_idx, test_idx = [], all_idx
     p_log('test_percent is {}, len(X_train)={}, len(X_test)={}\n'.format(
-        test_percent, len(X_idx_train), len(X_idx_test)))
+        test_percent, len(train_idx), len(test_idx)))
+    
     if test_percent < 1.0:
         train_loader = Loader(
-            X_idx_train, corpus, batch_size, labels,
-            segment_len=segment_len, shuffle=shuffle,
-            load_from_hdf5=load_from_hdf5
+            X, Y, train_idx, batch_size, 
+            segment_len=segment_len, shuffle=shuffle
         )
     else:
         train_loader = None
     test_loader = Loader(
-        X_idx_test, corpus, batch_size, labels,
-        segment_len=segment_len, shuffle=shuffle,
-        load_from_hdf5=load_from_hdf5
+            X, Y, test_idx, batch_size, 
+            segment_len=segment_len, shuffle=shuffle
     )
-    p_log('split dataset done with {}s\n'.format(time() - s_t))
     return train_loader, test_loader
 
 

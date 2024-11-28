@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.utils.rnn as rnn_utils
 
 import os, sys
 base_path = os.path.dirname(os.path.abspath(__file__))
@@ -19,10 +20,11 @@ class EBSNN_LSTM(nn.Module):
         self.rnn_dim = 100
         # if bi-direction
         self.rnn_directions = 2 if bidirectional else 1
+        self.padding_idx = 256
 
         # 256 is 'gg', will be set [0,0..0]
-        self.byte_embed = nn.Embedding(257, self.embedding_dim, padding_idx=256)
-        # to one-hot
+        # TODO: ???
+        self.byte_embed = nn.Embedding(257, self.embedding_dim, padding_idx=self.padding_idx)
         self.byte_embed.requires_grad = True
 
         self.rnn1 = nn.LSTM(input_size=self.embedding_dim,
@@ -52,12 +54,20 @@ class EBSNN_LSTM(nn.Module):
     '''
 
     def forward(self, x):
+        # x.shape = (B, L, 8) where L is different for every packet
+        # TODO: pad and pack
+        seq_lengths = torch.tensor([seq.size(0) for seq in x]).int()
+        x = rnn_utils.pad_sequence(x, batch_first=True, padding_value=self.padding_idx)
+        # out.shape = (B, l=max(L), 8)
         batch_size = x.size(0)
+
         x = self.byte_embed(x)  
-        # out.shape = (b, l, 8, 257)
+        # out.shape = (B, l, 8, 64)
+        x = rnn_utils.pack_padded_sequence(x, seq_lengths, batch_first=True, enforce_sorted=False)
 
         ### RNN1
-        out1, (h_n, c_n) = self.rnn1(x.view(-1, self.segment_len, self.embedding_dim)) 
+        out1, _ = self.rnn1(x) 
+        # out1, _ = self.rnn1(x.view(-1, self.segment_len, self.embedding_dim)) 
         # out.shape = (b*l, 8, f=100)
 
         ## Attention layer
