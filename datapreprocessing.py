@@ -45,7 +45,7 @@ class Loader():
         self.segment_len = segment_len
         self.batch_size = batch_size
 
-        print(self.alpha)
+        self.alpha = Counter(self.Y)
         for i in label_dict.values():
             if i not in self.alpha:
                 self.alpha[i] = 0
