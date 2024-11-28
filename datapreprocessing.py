@@ -6,7 +6,6 @@ import numpy as np
 import pickle
 import torch
 import h5py
-from mpi4py import MPI
 
 import os, sys
 base_path = os.path.dirname(os.path.abspath(__file__))
