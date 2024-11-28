@@ -65,7 +65,7 @@ class Loader():
     def __getitem__(self, idx):
         batch_X, batch_y = [], []
         
-        for i in range(idx * self.batch_size, (idx+1) * self.batch_size):
+        for i in range(idx * self.batch_size, min(len(self.Y), (idx+1) * self.batch_size)):
             batch_X.append(self.X[i])
             batch_y.append(self.Y[i])
         
