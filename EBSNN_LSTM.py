@@ -11,7 +11,7 @@ from utils import p_log
 
 class EBSNN_LSTM(nn.Module):
     def __init__(self, num_class, embedding_dim, device,
-                 bidirectional=True, segment_len=8, dropout_rate=0.5):
+                 bidirectional=True, segment_len=8, dropout_rate=0.2):
         super(EBSNN_LSTM, self).__init__()
         self.num_class = num_class
         self.embedding_dim = embedding_dim
@@ -46,7 +46,7 @@ class EBSNN_LSTM(nn.Module):
         self.fc3 = nn.Linear(self.rnn_dim * self.rnn_directions,
                              self.num_class)
 
-        self.dropout = nn.Dropout(0.5)
+        # self.dropout = nn.Dropout(0.5)
 
     '''
     x: b * l * 8
@@ -56,57 +56,57 @@ class EBSNN_LSTM(nn.Module):
     def forward(self, x):
         # x.shape = (B, L, 8) where L is different for every packet
         # TODO: pad and pack
+        batch_size = len(x)
         seq_lengths = torch.tensor([seq.size(0) for seq in x]).int()
         x = rnn_utils.pad_sequence(x, batch_first=True, padding_value=self.padding_idx)
         # out.shape = (B, l=max(L), 8)
-        batch_size = x.size(0)
 
         x = self.byte_embed(x)  
         # out.shape = (B, l, 8, 64)
-        x = rnn_utils.pack_padded_sequence(x, seq_lengths, batch_first=True, enforce_sorted=False)
+        # x = rnn_utils.pack_padded_sequence(x, seq_lengths, batch_first=True, enforce_sorted=False)
 
         ### RNN1
-        out1, _ = self.rnn1(x) 
-        # out1, _ = self.rnn1(x.view(-1, self.segment_len, self.embedding_dim)) 
+        # out1, _ = self.rnn1(x) 
+        assert(x.shape[-2]==self.segment_len)
+        out1, _ = self.rnn1(x.view(-1, self.segment_len, self.embedding_dim)) 
         # out.shape = (b*l, 8, f=100)
 
         ## Attention layer
         # FC
-        h = torch.tanh(self.fc1(out1.contiguous().view(
-            -1, self.rnn_directions * self.rnn_dim))).view(
-                out1.size(0), out1.size(1), -1)
+        # out1 = out1.contiguous().view(-1, self.rnn_directions * self.rnn_dim)
+        # h = torch.tanh(self.fc1(out1)).view(out1.size(0), out1.size(1), -1)
+        h = torch.tanh(self.fc1(out1))
         h = h.cuda(self.device)
         # FC * q
         self.hc1 = self.hc1.cuda(self.device)
         weights = (torch.matmul(h, self.hc1)).view(-1, self.segment_len)
         # softmax(FC * q)
         weights = F.softmax(weights, dim=1)
-        weights = weights.view(-1, 1, self.segment_len)
+        weights = weights.view(-1, 1, self.segment_len) # shape=(b*l, 1, 8)
         # H * softmax(FC * q)
-        out2 = torch.matmul(weights, out1).view(
-            batch_size, -1, self.rnn_dim * self.rnn_directions)
-        # out.shape = (b*l, f=100)
+        out2 = torch.matmul(weights, out1).view(batch_size, -1, self.rnn_dim * self.rnn_directions)
+        # out.shape = (b, l, f=100)
 
         ### RNN2
-        out3, (h1_n, h2_n) = self.rnn2(out2)  
+        out3, _ = self.rnn2(out2)  
         # out.shape = (b, l, f=100)
 
         ## Attention layer
         # FC
-        h2 = torch.tanh(self.fc2(out3.contiguous().view(
-            -1, self.rnn_dim * self.rnn_directions))).view(
-                out3.size(0), out3.size(1), -1)
-        h2 = h2.cuda(self.device)
-        # softmax(FC * q)
+        # out3 = out3.contiguous().view(-1, self.rnn_dim * self.rnn_directions)
+        # h2 = torch.tanh(self.fc2(out3)).view(out3.size(0), out3.size(1), -1)
+        h2 = torch.tanh(self.fc2(out3))
+        h2 = h2.cuda(self.device) # shape = (b, l, f=100)
+        # FC * q
         self.hc2 = self.hc2.cuda(self.device)
-        weights2 = F.softmax((torch.matmul(h2, self.hc2)).view(
-            batch_size, -1), dim=1).view(batch_size, 1, -1)
+        weights2 = (torch.matmul(h2, self.hc2)).view(batch_size, -1) # shape = (b, l)
+        # softmax(FC * q)
+        weights2 = F.softmax(weights2, dim=1).view(batch_size, 1, -1) # shape = (b, 1, l)
         # H * softmax(FC * q)
-        out4 = torch.matmul(weights2, out3).view(
-            batch_size, self.rnn_dim * self.rnn_directions)
-        # out.shape = (b*l, f=100)
+        out4 = torch.matmul(weights2, out3).view(batch_size, self.rnn_dim * self.rnn_directions)
+        # out.shape = (b, f=100)
 
         ### d --> logits
-        out = self.dropout(self.fc3(out4))
-        # out.shape = (b*l, C)
+        out = self.fc3(out4)
+        # out.shape = (b, C)
         return out
