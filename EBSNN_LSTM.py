@@ -10,13 +10,12 @@ from utils import p_log
 
 
 class EBSNN_LSTM(nn.Module):
-    def __init__(self, num_class, embedding_dim, device,
-                 bidirectional=True, segment_len=8, dropout_rate=0.2):
+    def __init__(self, num_class, embedding_dim, device=0,
+                 bidirectional=False, dropout_rate=0.2):
         super(EBSNN_LSTM, self).__init__()
         self.num_class = num_class
         self.embedding_dim = embedding_dim
         self.device = torch.device("cuda:{}".format(device))
-        self.segment_len = segment_len
         self.rnn_dim = 100
         # if bi-direction
         self.rnn_directions = 2 if bidirectional else 1
@@ -57,8 +56,10 @@ class EBSNN_LSTM(nn.Module):
         # x.shape = (B, L, 8) where L is different for every packet
         # TODO: pad and pack
         batch_size = len(x)
-        seq_lengths = torch.tensor([seq.size(0) for seq in x]).int()
+        segment_len = x[0].shape[-1]
+        # seq_lengths = torch.tensor([seq.size(0) for seq in x]).int()
         x = rnn_utils.pad_sequence(x, batch_first=True, padding_value=self.padding_idx)
+        x = x.cuda(self.device)
         # out.shape = (B, l=max(L), 8)
 
         x = self.byte_embed(x)  
@@ -67,8 +68,8 @@ class EBSNN_LSTM(nn.Module):
 
         ### RNN1
         # out1, _ = self.rnn1(x) 
-        assert(x.shape[-2]==self.segment_len)
-        out1, _ = self.rnn1(x.view(-1, self.segment_len, self.embedding_dim)) 
+        assert(x.shape[-2]==segment_len)
+        out1, _ = self.rnn1(x.view(-1, segment_len, self.embedding_dim)) 
         # out.shape = (b*l, 8, f=100)
 
         ## Attention layer
@@ -79,10 +80,10 @@ class EBSNN_LSTM(nn.Module):
         h = h.cuda(self.device)
         # FC * q
         self.hc1 = self.hc1.cuda(self.device)
-        weights = (torch.matmul(h, self.hc1)).view(-1, self.segment_len)
+        weights = (torch.matmul(h, self.hc1)).view(-1, segment_len)
         # softmax(FC * q)
         weights = F.softmax(weights, dim=1)
-        weights = weights.view(-1, 1, self.segment_len) # shape=(b*l, 1, 8)
+        weights = weights.view(-1, 1, segment_len) # shape=(b*l, 1, 8)
         # H * softmax(FC * q)
         out2 = torch.matmul(weights, out1).view(batch_size, -1, self.rnn_dim * self.rnn_directions)
         # out.shape = (b, l, f=100)
