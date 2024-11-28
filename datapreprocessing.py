@@ -23,14 +23,36 @@ def segment_array(arr, segment_len=8):
             result.append(segment)
     return result
 
+
+def calculate_alpha(counter, mode='normal'):
+    if mode == 'normal':
+        alpha = torch.tensor(counter, dtype=torch.float32)
+        alpha = alpha / alpha.sum(0).expand_as(alpha)
+    elif mode == 'invert':
+        alpha = torch.tensor(counter, dtype=torch.float32)
+        alpha_sum = alpha.sum(0)
+        alpha_sum_expand = alpha_sum.expand_as(alpha)
+        alpha = (alpha_sum - alpha) / alpha_sum_expand
+    # fill all zeros to ones
+    alpha[alpha==0.] = 1.
+    return alpha
+
 class Loader():
-    def __init__(self, X, Y, batch_size, segment_len=8):
+    def __init__(self, X, Y, label_dict, batch_size, segment_len=8):
         self.X = []
         self.Y = Y
             
         self.segment_len = segment_len
         self.batch_size = batch_size
 
+        self.alpha = Counter(list(self.Y.values()))
+        for i in label_dict.values():
+            if i not in self.alpha:
+                self.alpha[i] = 0
+        # TODO(DCMMC): consistent with FlowLoader?
+        counter = [self.alpha[k] for k in sorted(self.alpha.keys())]
+        self.alpha = calculate_alpha(counter, mode='invert')
+        
         print(f"Segmenting {len(X)} packets with segment_len={self.segment_len}")
         for packet in X:
             packet_segmented = torch.tensor(segment_array(packet, self.segment_len)).long() # (L, N) 
@@ -56,7 +78,7 @@ def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
                            subset_pct=1, segment_len=8):
     X, Y = [], []
     labels = [f[:-4] for f in os.listdir(dataset_dir) if f.endswith('.pkl')]
-    label_dict = {d:i for i,d in enumerate(labels)}
+    label_dict = {d:i for i,d in enumerate(labels)} # class: idx
     for file in os.listdir(dataset_dir)[:5]:  # subdir level
         if file.endswith('.pkl'):
             label = file[:-4]
@@ -89,10 +111,10 @@ def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
     Y_train = [Y[i] for i in train_idx]
     X_test = [X[i] for i in test_idx]
     Y_test = [Y[i] for i in test_idx]
-    train_loader = Loader(X_train, Y_train, batch_size, segment_len=segment_len )
-    test_loader = Loader(X_test, Y_test, batch_size, segment_len=segment_len )
+    train_loader = Loader(X_train, Y_train, label_dict, batch_size, segment_len=segment_len )
+    test_loader = Loader(X_test, Y_test, label_dict, batch_size, segment_len=segment_len )
         
-    return train_loader, test_loader
+    return train_loader, test_loader, len(labels)
 
 
 ################################################

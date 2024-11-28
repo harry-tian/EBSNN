@@ -137,9 +137,9 @@ if __name__ == '__main__':
                   bidirectional=BIDIRECTION)
 
     # model.load_state_dict(torch.load(load_model_name))
-    overall_label_ix = (torch.arange(0, NUM_CLASS)).long()
+    # overall_label_ix = (torch.arange(0, NUM_CLASS)).long()
     model = model.cuda(DEVICE)
-    overall_label_ix = overall_label_ix.cuda(DEVICE)
+    # overall_label_ix = overall_label_ix.cuda(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
     # loss_func = nn.CrossEntropyLoss()
     loss_func = FocalLoss(
@@ -147,13 +147,6 @@ if __name__ == '__main__':
         gamma=GAMMA, size_average=True)
 
     num_batch = len(train_loader)
-    p_log('data prepare done! Train batch: '
-          '{} with {} samples, Test batch: {} with {}\n'.format(
-              num_batch, train_loader.num_samples,
-              len(test_loader), test_loader.num_samples) +
-          ' samples. Time in total: {}s'.format(
-              time() - timer_start))
-    timer_start = time()
     # patience is how long to wait after last time validation loss improved.
     # early_stopping = EarlyStopping(patience=patience, verbose=True)
     best_results = {'acc': 0., 'epoch': 0, 'results': None}
@@ -164,11 +157,11 @@ if __name__ == '__main__':
         # Avoid extremely poor resource situation, i.e. load average far
         # more than cpu core count
         load_avg = os.getloadavg()[1]
-        while load_avg > 3 * cpu_cnt:
-            # wait for 20min
-            p_log('Current laod average is very high! '
-                  '({} while cpu cores={})'.format(load_avg, cpu_cnt))
-            time.sleep(20 * 60)
+        # while load_avg > 3 * cpu_cnt:
+        #     # wait for 20min
+        #     p_log('Current laod average is very high! '
+        #           '({} while cpu cores={})'.format(load_avg, cpu_cnt))
+        #     time.sleep(20 * 60)
         train_loss = 0.
         train_acc_avg = 0.
         y = []
@@ -192,104 +185,9 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
 
-            if i % output_after_batches == 0:
-                p_log('batch {} ok'.format(i))
-                p_log('{}s per batch, now at epoch {}\n'.format(
-                    (time() - s_t) / (i+1), epoch))
         train_loss = train_loss / num_batch
         train_acc_avg = train_acc_avg / num_batch
         # train_accuracy = accuracy_score(y, y_hat)
-        if DEBUG and False:
-            p_log('DEBUG training results:')
-            deal_results(y, y_hat)
-        if epoch % test_cycle == 0:
-            if DEBUG:
-                # VERY SLOW!!!
-                train_loss_eval, train_acc_eval, _ = evaluate_loss_acc(
-                    model, train_loader, train_loader.alpha, GAMMA,
-                    NUM_CLASS, DEVICE, test=False, flow=FLOW,
-                    aggregate=AGGREGATE)
-            else:
-                # TODO(DCMMC): very strange!!!
-                # train_acc_avg is very low, ~0.5, but testing acc > 0.9
-                train_loss_eval, train_acc_eval = [
-                    train_loss, train_acc_avg
-                ]
-            p_log('start evaluate test...')
-            test_loss, test_accuracy, test_results = evaluate_loss_acc(
-                model, test_loader, test_loader.alpha, GAMMA,
-                NUM_CLASS, DEVICE, test=True, flow=FLOW,
-                aggregate=AGGREGATE)
-            log_writer.add_scalar('train_loss', train_loss_eval, epoch)
-            log_writer.add_scalar('train_acc', train_acc_eval, epoch)
-            log_writer.add_scalar('test_acc', test_accuracy, epoch)
-            log_writer.add_scalar('test_loss', test_loss, epoch)
-            class_reports = deal_results(*test_results)
-            try:
-                for lbl in class_reports:
-                    if isinstance(class_reports[lbl], dict):
-                        log_writer.add_scalars(
-                            'test_metrics_label{}'.format(lbl),
-                            class_reports[lbl], epoch)
-                    elif isinstance(class_reports[lbl], float):
-                        # accuracy
-                        # duplicated with test_acc
-                        # log_writer.add_scalcar(lbl, class_reports[lbl], epoch)
-                        pass
-            except Exception as e:
-                p_log('Exception: {}'.format(e))
-                traceback.print_exc()
-                p_log('ignore exception, please fixme')
-            p_log(('epoch: {} done ({} s),  train loss: {}, train '
-                   'accuracy: {}, test loss: {}, test '
-                   'accuracy: {}').format(
-                       epoch, time() - s_t, train_loss_eval,
-                       train_acc_eval, test_loss, test_accuracy))
-            if test_accuracy > best_results['acc']:
-                best_results['acc'] = test_accuracy
-                best_results['epoch'] = epoch
-                best_results['results'] = class_reports
-                model_best = model.state_dict(), test_accuracy, epoch
-                # debug
-                # test_loss, test_accuracy, test_results = evaluate_loss_acc(
-                #     model, debug_test_loader, debug_test_loader.alpha, GAMMA,
-                #     NUM_CLASS, DEVICE, test=True, flow=FLOW,
-                #     aggregate=AGGREGATE)
-                # p_log('DEBUG: newtest on original model: ' +
-                #       f'loss: {test_loss}, acc: {test_accuracy}')
-                # save_model_name = './models/best_debug.pt'
-                # torch.save(model_best[0], save_model_name)
-                # del model
-                # p_log(f'load model from {save_model_name}')
-                # model = MODEL(NUM_CLASS, EMBEDDING_DIM, DEVICE,
-                #       segment_len=SEGMENT_LEN,
-                #       bidirectional=BIDIRECTION)
-                # model.load_state_dict(torch.load(save_model_name))
-                # model = model.cuda(DEVICE)
-                # test_loss, test_accuracy, test_results = evaluate_loss_acc(
-                #     model, test_loader, test_loader.alpha, GAMMA,
-                #     NUM_CLASS, DEVICE, test=True, flow=FLOW,
-                #     aggregate=AGGREGATE)
-                # p_log('DEBUG: test on loaded model: ' +
-                #       f'loss: {test_loss}, acc: {test_accuracy}')
-                # test_loss, test_accuracy, test_results = evaluate_loss_acc(
-                #     model, debug_test_loader, debug_test_loader.alpha, GAMMA,
-                #     NUM_CLASS, DEVICE, test=True, flow=FLOW,
-                #     aggregate=AGGREGATE)
-                # p_log('DEBUG: newtest on loaded model: ' +
-                #       f'loss: {test_loss}, acc: {test_accuracy}')
-
-            # early_stopping(1 / test_accuracy, model)
-            # if early_stopping.early_stop:
-            #     print("Early stopping")
-            #     break
-        else:
-            p_log('epoch: {} done ({} s),  train loss: {}'.format(
-                  epoch, time() - s_t, train_loss))
-    p_log('The best test acc ('
-          '{}) achieved as epoch {}, results: {}'.format(
-              best_results['acc'], best_results['epoch'],
-              best_results['results']))
     # save model
     save_model_name = './models/saved_final_checkpoint.pt'
     torch.save(model.state_dict(), save_model_name)
@@ -302,4 +200,3 @@ if __name__ == '__main__':
     # export scalar data to JSON for external processing
     log_writer.export_scalars_to_json("./all_scalars.json")
     log_writer.close()
-    p_log('All done, training time: {}'.format(time() - timer_start))
