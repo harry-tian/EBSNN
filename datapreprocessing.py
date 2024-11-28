@@ -5,12 +5,12 @@ from collections import Counter
 import numpy as np
 import pickle
 import random
-# import torch
+import torch
+from tqdm import tqdm
 
 import os, sys
 base_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.extend([os.path.join(base_path),os.path.join(base_path, "../"),base_path.rsplit('/')[0]])
-from utils import p_log
 
 def segment_array(arr, segment_len=8): 
     # output: L * N
@@ -24,65 +24,53 @@ def segment_array(arr, segment_len=8):
     return result
 
 class Loader():
-    def __init__(self, X, Y, idx, batch_size, segment_len=8, shuffle=True):
+    def __init__(self, X, Y, batch_size, segment_len=8):
         self.X = []
         self.Y = Y
-        self.shuffle = shuffle
-        self.idx = idx
-        if self.shuffle:
-            random.shuffle(self.idx)
             
         self.segment_len = segment_len
         self.batch_size = batch_size
 
+        print(f"Segmenting {len(X)} packets with segment_len={self.segment_len}")
         for packet in X:
             packet_segmented = torch.tensor(segment_array(packet, self.segment_len)).long() # (L, N) 
             self.X.append(packet_segmented)
 
 
     def __len__(self):
-        return int(np.ceil(len(self.idx) / self.batch_size))
+        return int(np.ceil(len(self.Y) / self.batch_size))
 
     def __getitem__(self, idx):
         batch_X, batch_y = [], []
         
-        for i in self.idx[idx * self.batch_size: (idx+1) * self.batch_size]:
+        for i in range(idx * self.batch_size, (idx+1) * self.batch_size):
             batch_X.append(self.X[i])
             batch_y.append(self.Y[i])
         
-        # batch_X = torch.tensor(batch_X, dtype=torch.long)
-        # batch_X = rnn_utils.pad_sequence(batch_X, batch_first=True)
         batch_y = torch.tensor(batch_y, dtype=torch.long)
-        if idx == len(self) - 1 and self.shuffle:
-            p_log('shuffle dataloader')
-            random.shuffle(self.idx)
         # if self._debug:
-        #     p_log('getitem {}, shape: {},\n'.format(
-        #         idx, batch_X.shape))
         return (batch_X, batch_y)
 
 
 def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
-                           subset_pct=1, segment_len=8, shuffle=True):
+                           subset_pct=1, segment_len=8):
     X, Y = [], []
     labels = [f[:-4] for f in os.listdir(dataset_dir) if f.endswith('.pkl')]
     label_dict = {d:i for i,d in enumerate(labels)}
-    for root, dirs, files in os.walk(dataset_dir):  # subdir level
-        for file in files: 
-            if file.endswith('.pkl'):
-                label = file[:-4]
-                y = label_dict[label]
-                file_name = os.path.join(root, file)
-                with open(file_name, 'rb') as f:
-                    try:
-                        while True:
-                            packet = pickle.load(f)
-                            assert(len(packet)==3)
-                            X.append(packet)
-                            Y.append(y)
-                    except EOFError:
-                        print("Finished reading " + file_name)
-                        print("Num packets: " + len(Y))
+    for file in os.listdir(dataset_dir)[:5]:  # subdir level
+        if file.endswith('.pkl'):
+            label = file[:-4]
+            y = label_dict[label]
+            file_name = os.path.join(dataset_dir, file)
+            with open(file_name, 'rb') as f:
+                try:
+                    while True:
+                        packet = pickle.load(f)
+                        assert(len(packet)==3)
+                        X.append(packet)
+                        Y.append(y)
+                except EOFError:
+                    print("Finished reading " + file_name)
     ## packet format: [[IP header], [TCP/UDP header], [payload]]
     # all stored as list of 8-bit ints
     # payload may be empty
@@ -90,30 +78,20 @@ def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
         idx = random.sample(list(range(len(Y))), int(len(Y)*subset_pct))
         X = [X[i] for i in idx]
         Y = [Y[i] for i in idx]
+    print(f'Sampling {subset_pct} of data: {len(Y)}')
 
 
     all_idx = list(range(len(X)))
 
-    if test_percent < 1.0:
-        train_idx, test_idx, _, _ = train_test_split(
-            all_idx, [0 for _ in all_idx], test_size=test_percent, random_state=0
-        )
-    else:
-        train_idx, test_idx = [], all_idx
-    p_log('test_percent is {}, len(X_train)={}, len(X_test)={}\n'.format(
-        test_percent, len(train_idx), len(test_idx)))
-    
-    if test_percent < 1.0:
-        train_loader = Loader(
-            X, Y, train_idx, batch_size, 
-            segment_len=segment_len, shuffle=shuffle
-        )
-    else:
-        train_loader = None
-    test_loader = Loader(
-            X, Y, test_idx, batch_size, 
-            segment_len=segment_len, shuffle=shuffle
-    )
+    train_idx, test_idx, _, _ = train_test_split(all_idx, [0 for _ in all_idx], test_size=test_percent, random_state=0)
+    print(f"train: {len(train_idx)}; test: {len(test_idx)}")
+    X_train = [X[i] for i in train_idx]
+    Y_train = [Y[i] for i in train_idx]
+    X_test = [X[i] for i in test_idx]
+    Y_test = [Y[i] for i in test_idx]
+    train_loader = Loader(X_train, Y_train, batch_size, segment_len=segment_len )
+    test_loader = Loader(X_test, Y_test, batch_size, segment_len=segment_len )
+        
     return train_loader, test_loader
 
 
@@ -129,7 +107,7 @@ class FlowLoader():
     # we dont use y as all, instead the ys are stored in hdf5 file
     # labels: a dict with key=applicatin name, value=numerical label
     def __init__(self, X, batch_size, filename, alpha, test_dataset=False,
-                 first_k_packets=3, shuffle=True, segment_len=8, buffer_size=2048):
+                 first_k_packets=3, segment_len=8, buffer_size=2048):
         self._debug = False
         if self._debug:
             debug_s_t = time()
@@ -225,7 +203,7 @@ class FlowLoader():
 
 
 def _get_dataloader_flow(dataset_dir, test_percent, batch_size,
-                         first_k_packets, subset_pct=1, segment_len=8, shuffle=True):
+                         first_k_packets, subset_pct=1, segment_len=8):
     # transform traffic file to h5 file
     s_t = time()
     xs_path = []
@@ -288,7 +266,7 @@ def _get_dataloader_flow(dataset_dir, test_percent, batch_size,
         train_loader = FlowLoader(
             X_train, batch_size,
             os.path.join('data', filename.split('.')[0] + '.hdf5'),
-            alpha_train, shuffle=shuffle,
+            alpha_train,
             first_k_packets=first_k_packets, segment_len=segment_len)
     else:
         train_loader = None
@@ -299,7 +277,7 @@ def _get_dataloader_flow(dataset_dir, test_percent, batch_size,
     test_loader = FlowLoader(
         X_test, batch_size,
         os.path.join('data', filename.split('.')[0] + '.hdf5'),
-        alpha_test, shuffle=shuffle,
+        alpha_test,
         test_dataset=True, first_k_packets=first_k_packets,
         segment_len=segment_len)
     p_log('split dataset done with {}s\n'.format(time() - s_t))
@@ -308,10 +286,10 @@ def _get_dataloader_flow(dataset_dir, test_percent, batch_size,
 
 # Turn file to X and y. percent is test_size
 def get_dataloader(dataset_dir, test_percent, batch_size, subset_pct=1, flow=False,
-                   first_k_packets=None, segment_len=8, shuffle=True):
+                   first_k_packets=None, segment_len=8):
     if flow:
         return _get_dataloader_flow(dataset_dir, test_percent, batch_size, first_k_packets,
-                                    subset_pct=subset_pct, segment_len=segment_len, shuffle=shuffle)
+                                    subset_pct=subset_pct, segment_len=segment_len)
     else:
         return _get_dataloader_packet(dataset_dir, test_percent, batch_size, 
-                                      subset_pct=subset_pct, segment_len=segment_len,shuffle=shuffle)
+                                      subset_pct=subset_pct, segment_len=segment_len)
