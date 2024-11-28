@@ -4,8 +4,8 @@ from sklearn.model_selection import train_test_split
 from collections import Counter
 import numpy as np
 import pickle
-import torch
-import h5py
+import random
+# import torch
 
 import os, sys
 base_path = os.path.dirname(os.path.abspath(__file__))
@@ -63,10 +63,10 @@ class Loader():
 
 
 def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
-                           segment_len=8, shuffle=True):
+                           subset_pct=1, segment_len=8, shuffle=True):
     X, Y = [], []
-    subdirs = [d for d in os.listdir(dataset_dir) if os.path.isdir(os.path.join(dataset_dir, d))]
-    label_dict = {d:i for i,d in enumerate(subdirs)}
+    labels = [f[:-4] for f in os.listdir(dataset_dir) if f.endswith('.pkl')]
+    label_dict = {d:i for i,d in enumerate(labels)}
     for root, dirs, files in os.walk(dataset_dir):  # subdir level
         for file in files: 
             if file.endswith('.pkl'):
@@ -82,10 +82,16 @@ def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
                             Y.append(y)
                     except EOFError:
                         print("Finished reading " + file_name)
-    
+                        print("Num packets: " + len(Y))
     ## packet format: [[IP header], [TCP/UDP header], [payload]]
     # all stored as list of 8-bit ints
     # payload may be empty
+    if subset_pct < 1:
+        idx = random.sample(list(range(len(Y))), int(len(Y)*subset_pct))
+        X = [X[i] for i in idx]
+        Y = [Y[i] for i in idx]
+
+
     all_idx = list(range(len(X)))
 
     if test_percent < 1.0:
@@ -122,7 +128,7 @@ class FlowLoader():
     # X is the paths of flows
     # we dont use y as all, instead the ys are stored in hdf5 file
     # labels: a dict with key=applicatin name, value=numerical label
-    def __init__(self, X, labels, batch_size, filename, alpha, test_dataset=False,
+    def __init__(self, X, batch_size, filename, alpha, test_dataset=False,
                  first_k_packets=3, shuffle=True, segment_len=8, buffer_size=2048):
         self._debug = False
         if self._debug:
@@ -218,8 +224,8 @@ class FlowLoader():
         return (batch_X, batch_y)
 
 
-def _get_dataloader_flow(filename, labels, test_percent, batch_size,
-                         first_k_packets, segment_len=8, shuffle=True):
+def _get_dataloader_flow(dataset_dir, test_percent, batch_size,
+                         first_k_packets, subset_pct=1, segment_len=8, shuffle=True):
     # transform traffic file to h5 file
     s_t = time()
     xs_path = []
@@ -280,7 +286,7 @@ def _get_dataloader_flow(filename, labels, test_percent, batch_size,
             mode='invert'
         )
         train_loader = FlowLoader(
-            X_train, labels, batch_size,
+            X_train, batch_size,
             os.path.join('data', filename.split('.')[0] + '.hdf5'),
             alpha_train, shuffle=shuffle,
             first_k_packets=first_k_packets, segment_len=segment_len)
@@ -291,7 +297,7 @@ def _get_dataloader_flow(filename, labels, test_percent, batch_size,
         mode='invert'
     )
     test_loader = FlowLoader(
-        X_test, labels, batch_size,
+        X_test, batch_size,
         os.path.join('data', filename.split('.')[0] + '.hdf5'),
         alpha_test, shuffle=shuffle,
         test_dataset=True, first_k_packets=first_k_packets,
@@ -301,13 +307,11 @@ def _get_dataloader_flow(filename, labels, test_percent, batch_size,
 
 
 # Turn file to X and y. percent is test_size
-def get_dataloader(filename, labels, test_percent, batch_size, flow=False,
+def get_dataloader(dataset_dir, test_percent, batch_size, subset_pct=1, flow=False,
                    first_k_packets=None, segment_len=8, shuffle=True):
     if flow:
-        return _get_dataloader_flow(filename, labels, test_percent,
-                                    batch_size, first_k_packets,
-                                    segment_len=segment_len, shuffle=shuffle)
+        return _get_dataloader_flow(dataset_dir, test_percent, batch_size, first_k_packets,
+                                    subset_pct=subset_pct, segment_len=segment_len, shuffle=shuffle)
     else:
-        return _get_dataloader_packet(filename, labels, test_percent,
-                                      batch_size, segment_len=segment_len,
-                                      shuffle=shuffle)
+        return _get_dataloader_packet(dataset_dir, test_percent, batch_size, 
+                                      subset_pct=subset_pct, segment_len=segment_len,shuffle=shuffle)
