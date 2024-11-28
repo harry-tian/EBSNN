@@ -79,7 +79,7 @@ def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
     X, Y = [], []
     labels = [f[:-4] for f in os.listdir(dataset_dir) if f.endswith('.pkl')]
     label_dict = {d:i for i,d in enumerate(labels)} # class: idx
-    for file in os.listdir(dataset_dir)[:5]:  # subdir level
+    for file in os.listdir(dataset_dir):  # subdir level
         if file.endswith('.pkl'):
             label = file[:-4]
             y = label_dict[label]

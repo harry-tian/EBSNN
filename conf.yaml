@@ -1,0 +1,21 @@
+data_configs:
+  dataset_dir: data/D1
+  test_percent: 0.2
+  subset_pct: 0.1
+
+model_configs:
+  embedding_dim: 64
+  dropout: 0.1
+  bidirectional: false
+  device: 0
+
+train_configs:
+  num_epochs: 5
+  batch_size: 128
+  lr: 0.001
+  gamma: 1
+
+wandb_configs:
+  group: D1_subset=0.1
+  run_name: bs=128
+  project: EBSNN
