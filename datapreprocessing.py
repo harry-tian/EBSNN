@@ -54,7 +54,7 @@ class Loader():
         self.alpha = calculate_alpha(counter, mode='invert')
         
         print(f"Segmenting {len(X)} packets with segment_len={self.segment_len}")
-        for packet in X:
+        for packet in tqdm(X):
             packet_segmented = torch.tensor(segment_array(packet, self.segment_len)).long() # (L, N) 
             self.X.append(packet_segmented)
 
@@ -114,7 +114,7 @@ def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
     train_loader = Loader(X_train, Y_train, label_dict, batch_size, segment_len=segment_len )
     test_loader = Loader(X_test, Y_test, label_dict, batch_size, segment_len=segment_len )
         
-    return train_loader, test_loader, len(labels)
+    return train_loader, test_loader, label_dict
 
 
 ################################################
