@@ -74,8 +74,8 @@ class Loader():
         return (batch_X, batch_y)
 
 
-def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
-                           subset_pct=1, segment_len=8):
+def _get_dataloader_packet(dataset_dir, batch_size, data_split=[0.6, 0.2, 0.2], segment_len=8):
+    train_size, val_size, test_size = data_split
     X, Y = [], []
     labels = [f[:-4] for f in os.listdir(dataset_dir) if f.endswith('.pkl')]
     label_dict = {d:i for i,d in enumerate(labels)} # class: idx
@@ -88,7 +88,6 @@ def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
                 try:
                     while True:
                         packet = pickle.load(f)
-                        assert(len(packet)==3)
                         X.append(packet)
                         Y.append(y)
                 except EOFError:
@@ -96,25 +95,25 @@ def _get_dataloader_packet(dataset_dir, test_percent, batch_size,
     ## packet format: [[IP header], [TCP/UDP header], [payload]]
     # all stored as list of 8-bit ints
     # payload may be empty
-    if subset_pct < 1:
-        idx = random.sample(list(range(len(Y))), int(len(Y)*subset_pct))
-        X = [X[i] for i in idx]
-        Y = [Y[i] for i in idx]
-    print(f'Sampling {subset_pct} of data: {len(Y)}')
-
 
     all_idx = list(range(len(X)))
 
-    train_idx, test_idx, _, _ = train_test_split(all_idx, [0 for _ in all_idx], test_size=test_percent, random_state=0)
-    print(f"train: {len(train_idx)}; test: {len(test_idx)}")
+    train_idx, nontrain_idx, _, _ = train_test_split(all_idx, [0 for _ in all_idx], test_size=val_size+test_size, random_state=0)
     X_train = [X[i] for i in train_idx]
     Y_train = [Y[i] for i in train_idx]
+
+    val_idx, test_idx, _, _ = train_test_split(nontrain_idx, [0 for _ in nontrain_idx], test_size=test_size/(val_size+test_size), random_state=0)
     X_test = [X[i] for i in test_idx]
     Y_test = [Y[i] for i in test_idx]
+    X_val = [X[i] for i in val_idx]
+    Y_val = [Y[i] for i in val_idx]
+
+    print(f"train: {len(train_idx)}, val: {len(val_idx)}, test: {len(test_idx)}")
     train_loader = Loader(X_train, Y_train, label_dict, batch_size, segment_len=segment_len )
+    val_loader = Loader(X_val, Y_val, label_dict, batch_size, segment_len=segment_len )
     test_loader = Loader(X_test, Y_test, label_dict, batch_size, segment_len=segment_len )
         
-    return train_loader, test_loader, label_dict
+    return train_loader, val_loader, test_loader, label_dict
 
 
 ################################################
@@ -307,11 +306,9 @@ def _get_dataloader_flow(dataset_dir, test_percent, batch_size,
 
 
 # Turn file to X and y. percent is test_size
-def get_dataloader(dataset_dir, test_percent, batch_size, subset_pct=1, flow=False,
+def get_dataloader(dataset_dir, batch_size, data_split=[0.6,0.2,0.2], flow=False,
                    first_k_packets=None, segment_len=8):
     if flow:
-        return _get_dataloader_flow(dataset_dir, test_percent, batch_size, first_k_packets,
-                                    subset_pct=subset_pct, segment_len=segment_len)
+        return _get_dataloader_flow(dataset_dir, batch_size, first_k_packets, data_split=data_split, segment_len=segment_len)
     else:
-        return _get_dataloader_packet(dataset_dir, test_percent, batch_size, 
-                                      subset_pct=subset_pct, segment_len=segment_len)
+        return _get_dataloader_packet(dataset_dir, batch_size, data_split=data_split, segment_len=segment_len)
