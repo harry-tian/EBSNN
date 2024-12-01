@@ -164,5 +164,5 @@ def get_dataloader_flow(dataset_dir, first_k_packets=3, segment_len=8):
                 X.append(flow[:first_k_packets])
                 Y.append(y)
 
-    return FlowLoader(X, Y, batch_size, segment_len)
+    return FlowLoader(X, Y, batch_size, segment_len), label_dict
 
