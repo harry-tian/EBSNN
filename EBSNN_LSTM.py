@@ -21,8 +21,6 @@ class EBSNN_LSTM(nn.Module):
         self.rnn_directions = 2 if bidirectional else 1
         self.padding_idx = 256
 
-        # 256 is 'gg', will be set [0,0..0]
-        # TODO: ???
         self.byte_embed = nn.Embedding(257, self.embedding_dim, padding_idx=self.padding_idx)
         self.byte_embed.requires_grad = True
 
@@ -45,8 +43,6 @@ class EBSNN_LSTM(nn.Module):
         self.fc3 = nn.Linear(self.rnn_dim * self.rnn_directions,
                              self.num_class)
 
-        # self.dropout = nn.Dropout(0.5)
-
     '''
     x: b * l * 8
     lengths: (b,), every batch's length
@@ -54,7 +50,6 @@ class EBSNN_LSTM(nn.Module):
 
     def forward(self, x):
         # x.shape = (B, L, 8) where L is different for every packet
-        # TODO: pad and pack
         batch_size = len(x)
         segment_len = x[0].shape[-1]
         # seq_lengths = torch.tensor([seq.size(0) for seq in x]).int()
