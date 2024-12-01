@@ -159,10 +159,15 @@ def get_dataloader_flow(dataset_dir, first_k_packets=3, segment_len=8):
             file_name = os.path.join(dataset_dir, file)
             with open(file_name, 'rb') as f:
                 flows = pickle.load(f)
-
-            for flow in flows:
+            
+            if len(flows) > 0:
+                for flow in flows:
+                    X.append(flow[:first_k_packets])
+                    Y.append(y)
+            else:
                 X.append(flow[:first_k_packets])
                 Y.append(y)
+
 
     return FlowLoader(X, Y, batch_size, segment_len), label_dict
 
