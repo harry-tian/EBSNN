@@ -115,6 +115,28 @@ def get_dataloader(dataset_dir, batch_size, data_split=[0.6, 0.2, 0.2], segment_
         
     return train_loader, val_loader, test_loader, label_dict
 
+def get_testloader(dataset_dir, batch_size, segment_len=8):
+    X, Y = [], []
+    labels = [f[:-4] for f in os.listdir(dataset_dir) if f.endswith('.pkl')]
+    label_dict = {d:i for i,d in enumerate(labels)} # class: idx
+    for file in os.listdir(dataset_dir):  # subdir level
+        if file.endswith('.pkl'):
+            label = file[:-4]
+            y = label_dict[label]
+            file_name = os.path.join(dataset_dir, file)
+            with open(file_name, 'rb') as f:
+                try:
+                    while True:
+                        packet = pickle.load(f)
+                        X.append(packet)
+                        Y.append(y)
+                except EOFError:
+                    print("Finished reading " + file_name)
+    ## packet format: [[IP header], [TCP/UDP header], [payload]]
+    # all stored as list of 8-bit ints
+    # payload may be empty
+        
+    return Loader(X, Y, label_dict, batch_size, segment_len=segment_len), label_dict
 
 ################################################
 # DCMMC: new getloader for flow classification #
